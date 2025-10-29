@@ -12,13 +12,11 @@ import gc
 from copy import deepcopy
 import time
 
-from modules.uvr.music_separator import MusicSeparator
 from modules.utils.paths import (WHISPER_MODELS_DIR, DIARIZATION_MODELS_DIR, OUTPUT_DIR, DEFAULT_PARAMETERS_CONFIG_PATH,
                                  UVR_MODELS_DIR)
 from modules.utils.constants import *
 from modules.utils.logger import get_logger
 from modules.utils.subtitle_manager import *
-from modules.utils.youtube_manager import get_ytdata, get_ytaudio
 from modules.utils.files_manager import get_media_files, format_gradio_files, load_yaml, save_yaml, read_file
 from modules.utils.audio_manager import validate_audio
 from modules.whisper.data_classes import *
@@ -44,10 +42,7 @@ class BaseTranscriptionPipeline(ABC):
             model_dir=diarization_model_dir
         )
         self.vad = SileroVAD()
-        self.music_separator = MusicSeparator(
-            model_dir=uvr_model_dir,
-            output_dir=os.path.join(output_dir, "UVR")
-        )
+        # BGM separation (UVR) feature removed - music separator initialization disabled
 
         self.model = None
         self.current_model_size = None
@@ -124,27 +119,8 @@ class BaseTranscriptionPipeline(ABC):
         params = self.validate_gradio_values(params)
         bgm_params, vad_params, whisper_params, diarization_params = params.bgm_separation, params.vad, params.whisper, params.diarization
 
-        if bgm_params.is_separate_bgm:
-            music, audio, _ = self.music_separator.separate(
-                audio=audio,
-                model_name=bgm_params.uvr_model_size,
-                device=bgm_params.uvr_device,
-                segment_size=bgm_params.segment_size,
-                save_file=bgm_params.save_file,
-                progress=progress
-            )
-
-            if audio.ndim >= 2:
-                audio = audio.mean(axis=1)
-                if self.music_separator.audio_info is None:
-                    origin_sample_rate = 16000
-                else:
-                    origin_sample_rate = self.music_separator.audio_info.sample_rate
-                audio = self.resample_audio(audio=audio, original_sample_rate=origin_sample_rate)
-
-            if bgm_params.enable_offload:
-                self.music_separator.offload()
-            elapsed_time_bgm_sep = time.time() - start_time
+        # BGM separation removed - skip any separation logic
+        elapsed_time_bgm_sep = 0
 
         origin_audio = deepcopy(audio)
 
@@ -347,37 +323,8 @@ class BaseTranscriptionPipeline(ABC):
         result_file_path:
             Output file path to return to gr.Files()
         """
-        try:
-            params = TranscriptionPipelineParams.from_list(list(pipeline_params))
-            writer_options = {
-                "highlight_words": True if params.whisper.word_timestamps else False
-            }
-
-            progress(0, desc="Loading Audio..")
-            transcribed_segments, time_for_task = self.run(
-                mic_audio,
-                progress,
-                file_format,
-                add_timestamp,
-                None,
-                *pipeline_params,
-            )
-            progress(1, desc="Completed!")
-
-            file_name = "Mic"
-            subtitle, file_path = generate_file(
-                output_dir=self.output_dir,
-                output_file_name=file_name,
-                output_format=file_format,
-                result=transcribed_segments,
-                add_timestamp=add_timestamp,
-                **writer_options
-            )
-
-            result_str = f"Done in {self.format_time(time_for_task)}! Subtitle file is in the outputs folder.\n\n{subtitle}"
-            return result_str, file_path
-        except Exception as e:
-            raise RuntimeError(f"Error transcribing mic: {e}") from e
+        # Microphone transcription feature has been removed from this deployment.
+        raise RuntimeError("Microphone transcription (Mic) feature is removed.")
 
     def transcribe_youtube(self,
                            youtube_link: str,
@@ -409,46 +356,8 @@ class BaseTranscriptionPipeline(ABC):
         result_file_path:
             Output file path to return to gr.Files()
         """
-        try:
-            params = TranscriptionPipelineParams.from_list(list(pipeline_params))
-            writer_options = {
-                "highlight_words": True if params.whisper.word_timestamps else False
-            }
-
-            progress(0, desc="Loading Audio from Youtube..")
-            yt = get_ytdata(youtube_link)
-            audio = get_ytaudio(yt)
-
-            transcribed_segments, time_for_task = self.run(
-                audio,
-                progress,
-                file_format,
-                add_timestamp,
-                None,
-                *pipeline_params,
-            )
-
-            progress(1, desc="Completed!")
-
-            file_name = safe_filename(yt.title)
-            subtitle, file_path = generate_file(
-                output_dir=self.output_dir,
-                output_file_name=file_name,
-                output_format=file_format,
-                result=transcribed_segments,
-                add_timestamp=add_timestamp,
-                **writer_options
-            )
-
-            result_str = f"Done in {self.format_time(time_for_task)}! Subtitle file is in the outputs folder.\n\n{subtitle}"
-
-            if os.path.exists(audio):
-                os.remove(audio)
-
-            return result_str, file_path
-
-        except Exception as e:
-            raise RuntimeError(f"Error transcribing youtube: {e}") from e
+        # Youtube transcription feature has been removed from this deployment.
+        raise RuntimeError("YouTube transcription feature is removed.")
 
     def get_compute_type(self):
         if "float16" in self.available_compute_types:
