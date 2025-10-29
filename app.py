@@ -12,7 +12,6 @@ from modules.whisper.whisper_factory import WhisperFactory
 from modules.translation.nllb_inference import NLLBInference
 from modules.ui.htmls import *
 from modules.utils.cli_manager import str2bool
-from modules.utils.youtube_manager import get_ytmetas
 from modules.translation.deepl_api import DeepLAPI
 from modules.whisper.data_classes import *
 from modules.utils.logger import get_logger
@@ -24,6 +23,7 @@ logger = get_logger()
 class App:
     def __init__(self, args):
         self.args = args
+        args.whisper_type = WhisperImpl.INSANELY_FAST_WHISPER.value  # Force insanely fast whisper
         # Check every 1 hour (3600) for cached files and delete them if older than 1 day (86400)
         self.app = gr.Blocks(css=CSS, theme=self.args.theme, delete_cache=(3600, 86400))
         self.whisper_inf = WhisperFactory.create_whisper_inference(
@@ -50,7 +50,6 @@ class App:
         whisper_params = self.default_params["whisper"]
         vad_params = self.default_params["vad"]
         diarization_params = self.default_params["diarization"]
-        uvr_params = self.default_params["bgm_separation"]
 
         with gr.Row():
             dd_model = gr.Dropdown(choices=self.whisper_inf.available_models, value=whisper_params["model_size"],
@@ -73,11 +72,7 @@ class App:
                                                             available_compute_types=self.whisper_inf.available_compute_types,
                                                             compute_type=self.whisper_inf.current_compute_type)
 
-        with gr.Accordion(_("Background Music Remover Filter"), open=False):
-            uvr_inputs = BGMSeparationParams.to_gradio_input(defaults=uvr_params,
-                                                             available_models=self.whisper_inf.music_separator.available_models,
-                                                             available_devices=self.whisper_inf.music_separator.available_devices,
-                                                             device=self.whisper_inf.music_separator.device)
+        # Background Music Remover (UVR) UI removed
 
         with gr.Accordion(_("Voice Detection Filter"), open=False):
             vad_inputs = VadParams.to_gradio_inputs(defaults=vad_params)
@@ -87,7 +82,7 @@ class App:
                                                                     available_devices=self.whisper_inf.diarizer.available_device,
                                                                     device=self.whisper_inf.diarizer.device)
 
-        pipeline_inputs = [dd_model, dd_lang, cb_translate] + whisper_inputs + vad_inputs + diarization_inputs + uvr_inputs
+        pipeline_inputs = [dd_model, dd_lang, cb_translate] + whisper_inputs + vad_inputs + diarization_inputs
 
         return (
             pipeline_inputs,
@@ -99,7 +94,6 @@ class App:
         translation_params = self.default_params["translation"]
         deepl_params = translation_params["deepl"]
         nllb_params = translation_params["nllb"]
-        uvr_params = self.default_params["bgm_separation"]
 
         with self.app:
             lang = gr.Radio(choices=list(self.i18n.keys()),
@@ -111,7 +105,8 @@ class App:
                     with gr.Column():
                         gr.Markdown(MARKDOWN, elem_id="md_project")
                 with gr.Tabs():
-                    with gr.TabItem(_("File")):  # tab1
+                    # Only keeping File and T2T Translation tabs
+                    with gr.TabItem(_("File")):
                         with gr.Column():
                             input_file = gr.Files(type="filepath", label=_("Upload File here"), file_types=MEDIA_EXTENSION)
                             tb_input_folder = gr.Textbox(label="Input Folder Path (Optional)",
@@ -145,54 +140,7 @@ class App:
                                       outputs=[tb_indicator, files_subtitles])
                         btn_openfolder.click(fn=lambda: self.open_folder("outputs"), inputs=None, outputs=None)
 
-                    with gr.TabItem(_("Youtube")):  # tab2
-                        with gr.Row():
-                            tb_youtubelink = gr.Textbox(label=_("Youtube Link"))
-                        with gr.Row(equal_height=True):
-                            with gr.Column():
-                                img_thumbnail = gr.Image(label=_("Youtube Thumbnail"))
-                            with gr.Column():
-                                tb_title = gr.Label(label=_("Youtube Title"))
-                                tb_description = gr.Textbox(label=_("Youtube Description"), max_lines=15)
-
-                        pipeline_params, dd_file_format, cb_timestamp = self.create_pipeline_inputs()
-
-                        with gr.Row():
-                            btn_run = gr.Button(_("GENERATE SUBTITLE FILE"), variant="primary")
-                        with gr.Row():
-                            tb_indicator = gr.Textbox(label=_("Output"), scale=5)
-                            files_subtitles = gr.Files(label=_("Downloadable output file"), scale=3)
-                            btn_openfolder = gr.Button('📂', scale=1)
-
-                        params = [tb_youtubelink, dd_file_format, cb_timestamp]
-
-                        btn_run.click(fn=self.whisper_inf.transcribe_youtube,
-                                      inputs=params + pipeline_params,
-                                      outputs=[tb_indicator, files_subtitles])
-                        tb_youtubelink.change(get_ytmetas, inputs=[tb_youtubelink],
-                                              outputs=[img_thumbnail, tb_title, tb_description])
-                        btn_openfolder.click(fn=lambda: self.open_folder("outputs"), inputs=None, outputs=None)
-
-                    with gr.TabItem(_("Mic")):  # tab3
-                        with gr.Row():
-                            mic_input = gr.Microphone(label=_("Record with Mic"), type="filepath", interactive=True,
-                                                      show_download_button=True)
-
-                        pipeline_params, dd_file_format, cb_timestamp = self.create_pipeline_inputs()
-
-                        with gr.Row():
-                            btn_run = gr.Button(_("GENERATE SUBTITLE FILE"), variant="primary")
-                        with gr.Row():
-                            tb_indicator = gr.Textbox(label=_("Output"), scale=5)
-                            files_subtitles = gr.Files(label=_("Downloadable output file"), scale=3)
-                            btn_openfolder = gr.Button('📂', scale=1)
-
-                        params = [mic_input, dd_file_format, cb_timestamp]
-
-                        btn_run.click(fn=self.whisper_inf.transcribe_mic,
-                                      inputs=params + pipeline_params,
-                                      outputs=[tb_indicator, files_subtitles])
-                        btn_openfolder.click(fn=lambda: self.open_folder("outputs"), inputs=None, outputs=None)
+                    # Removed Youtube and Mic tabs
 
                     with gr.TabItem(_("T2T Translation")):  # tab 4
                         with gr.Row():
@@ -269,39 +217,7 @@ class App:
                             inputs=None,
                             outputs=None)
 
-                    with gr.TabItem(_("BGM Separation")):
-                        files_audio = gr.Files(type="filepath", label=_("Upload Audio Files to separate background music"))
-                        dd_uvr_device = gr.Dropdown(label=_("Device"), value=self.whisper_inf.music_separator.device,
-                                                    choices=self.whisper_inf.music_separator.available_devices)
-                        dd_uvr_model_size = gr.Dropdown(label=_("Model"), value=uvr_params["uvr_model_size"],
-                                                        choices=self.whisper_inf.music_separator.available_models)
-                        nb_uvr_segment_size = gr.Number(label="Segment Size", value=uvr_params["segment_size"],
-                                                        precision=0)
-                        cb_uvr_save_file = gr.Checkbox(label=_("Save separated files to output"),
-                                                       value=True, visible=False)
-                        btn_run = gr.Button(_("SEPARATE BACKGROUND MUSIC"), variant="primary")
-                        with gr.Column():
-                            with gr.Row():
-                                ad_instrumental = gr.Audio(label=_("Instrumental"), scale=8)
-                                btn_open_instrumental_folder = gr.Button('📂', scale=1)
-                            with gr.Row():
-                                ad_vocals = gr.Audio(label=_("Vocals"), scale=8)
-                                btn_open_vocals_folder = gr.Button('📂', scale=1)
-
-                        btn_run.click(fn=self.whisper_inf.music_separator.separate_files,
-                                      inputs=[files_audio, dd_uvr_model_size, dd_uvr_device, nb_uvr_segment_size,
-                                              cb_uvr_save_file],
-                                      outputs=[ad_instrumental, ad_vocals])
-                        btn_open_instrumental_folder.click(inputs=None,
-                                                           outputs=None,
-                                                           fn=lambda: self.open_folder(os.path.join(
-                                                               self.args.output_dir, "UVR", "instrumental"
-                                                           )))
-                        btn_open_vocals_folder.click(inputs=None,
-                                                     outputs=None,
-                                                     fn=lambda: self.open_folder(os.path.join(
-                                                         self.args.output_dir, "UVR", "vocals"
-                                                     )))
+                    # BGM Separation UI removed
 
         # Launch the app with optional gradio settings
         args = self.args
